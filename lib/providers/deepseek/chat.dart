@@ -1,4 +1,4 @@
-import 'package:dio/dio.dart';
+﻿import 'package:dio/dio.dart';
 
 import 'dart:convert';
 
@@ -309,8 +309,28 @@ class DeepSeekChat implements ChatCapability {
     }
 
     // Convert messages to DeepSeek format
+    // ToolResultMessage must be expanded into individual 'tool' role messages
+    // with tool_call_id, otherwise DeepSeek API returns:
+    // "An assistant message with 'tool_calls' must be followed by tool messages
+    // responding to each 'tool_call_id'"
     for (final message in messages) {
-      apiMessages.add(_convertMessage(message));
+      if (message.messageType is ToolResultMessage) {
+        final toolResults =
+            (message.messageType as ToolResultMessage).results;
+        for (final result in toolResults) {
+          apiMessages.add({
+            'role': 'tool',
+            'tool_call_id': result.id,
+            'content': message.content.isNotEmpty
+                ? message.content
+                : (result.function.arguments.isNotEmpty
+                    ? result.function.arguments
+                    : 'Tool result'),
+          });
+        }
+      } else {
+        apiMessages.add(_convertMessage(message));
+      }
     }
 
     final body = <String, dynamic>{
@@ -319,17 +339,52 @@ class DeepSeekChat implements ChatCapability {
       'stream': stream,
     };
 
-    // Add optional parameters
+
+
+    // Check if using reasoning model
+    final isReasonerModel = config.model == 'deepseek-reasoner';
+    final isV4Thinking = config.isV4ThinkingModel;
+
+    // Debug: log which messages have reasoning_content (V4 thinking mode)
+    if (isV4Thinking) {
+      for (var i = 0; i < apiMessages.length; i++) {
+        final msg = apiMessages[i];
+        if (msg.containsKey('reasoning_content')) {
+          client.logger.fine(
+            '[DeepSeek] Message[$i] role=${msg['role']} has reasoning_content '
+            '(${(msg['reasoning_content'] as String?)?.length ?? 0} chars)',
+          );
+        }
+      }
+
+      // Debug: log assistant messages that lack reasoning_content (V4 requirement)
+      var missingCount = 0;
+      for (var i = 0; i < apiMessages.length; i++) {
+        final msg = apiMessages[i];
+        if (msg['role'] == 'assistant' && !msg.containsKey('reasoning_content')) {
+          missingCount++;
+          if (missingCount <= 3) {
+            client.logger.fine(
+              '[DeepSeek] Message[$i] role=assistant MISSING reasoning_content '
+              '(this will cause "reasoning_content must be passed back" error if '
+              'this message was originally generated in thinking mode)',
+            );
+          }
+        }
+      }
+      if (missingCount > 0) {
+        client.logger.fine(
+          '[DeepSeek] Total $missingCount assistant messages missing reasoning_content '
+          '(thinking={"type": ${config.thinkingType ?? 'enabled'}}, reasoning_effort=${config.reasoningEffort ?? 'high'})',
+        );
+      }
+    }
+
+    // Add max_tokens (supported by all models)
     if (config.maxTokens != null) body['max_tokens'] = config.maxTokens;
-    if (config.temperature != null) body['temperature'] = config.temperature;
-    if (config.topP != null) body['top_p'] = config.topP;
-    if (config.topK != null) body['top_k'] = config.topK;
 
     // DeepSeek-specific parameters
     // Reference: https://api-docs.deepseek.com/api/create-chat-completion
-
-    // Check if using reasoning model
-    final isReasonerModel = config.supportsReasoning;
 
     if (isReasonerModel) {
       // deepseek-reasoner model restrictions
@@ -359,8 +414,36 @@ class DeepSeekChat implements ChatCapability {
         client.logger.info(
             'presence_penalty parameter has no effect on deepseek-reasoner model');
       }
+    } else if (isV4Thinking) {
+      // V4 models (deepseek-v4-flash, deepseek-v4-pro) thinking mode.
+      // Reference: https://api-docs.deepseek.com/guides/thinking_mode
+      //
+      // Key rules:
+      // - thinking mode is enabled by default; explicitly set it for clarity
+      // - thinking mode does NOT support: temperature, top_p, presence_penalty, frequency_penalty
+      //   (setting them won't error but they have no effect)
+      // - reasoning_effort controls reasoning depth: 'high', 'medium', 'low'
+
+      // Explicitly set thinking mode parameter
+      final thinkingType = config.thinkingType ?? 'enabled';
+      body['thinking'] = {'type': thinkingType};
+
+      // Set reasoning effort
+      body['reasoning_effort'] = config.reasoningEffort ?? 'high';
+
+      // Note: temperature, top_p, presence_penalty, frequency_penalty are NOT
+      // supported in thinking mode. We deliberately skip them here (unlike
+      // previous behavior which added them unconditionally at the top of
+      // this method). Reference:
+      // https://api-docs.deepseek.com/guides/thinking_mode#input-output-parameters
+      if (config.topK != null) body['top_k'] = config.topK;
+      if (config.logprobs != null) body['logprobs'] = config.logprobs;
+      if (config.topLogprobs != null) body['top_logprobs'] = config.topLogprobs;
     } else {
-      // For non-reasoner models, add all supported parameters
+      // For non-reasoner, non-V4 models (e.g. deepseek-chat), add all supported parameters
+      if (config.temperature != null) body['temperature'] = config.temperature;
+      if (config.topP != null) body['top_p'] = config.topP;
+      if (config.topK != null) body['top_k'] = config.topK;
       if (config.logprobs != null) body['logprobs'] = config.logprobs;
       if (config.topLogprobs != null) body['top_logprobs'] = config.topLogprobs;
       if (config.frequencyPenalty != null) {
@@ -405,6 +488,8 @@ class DeepSeekChat implements ChatCapability {
         break;
       case ToolUseMessage(toolCalls: final toolCalls):
         result['tool_calls'] = toolCalls.map((tc) => tc.toJson()).toList();
+        // Ensure content is set for tool use messages (DeepSeek may require it)
+        result['content'] = message.content;
         break;
       case ToolResultMessage():
         // Tool results are handled as separate messages in DeepSeek
@@ -415,11 +500,35 @@ class DeepSeekChat implements ChatCapability {
         result['content'] = message.content;
     }
 
-    // Important: Remove reasoning_content field if present
-    // Reference: https://api-docs.deepseek.com/guides/reasoning_model
-    // "if the reasoning_content field is included in the sequence of input messages,
-    // the API will return a 400 error"
-    result.remove('reasoning_content');
+    // Handle reasoning_content from extensions for thinking mode
+    // IMPORTANT: The behavior differs between model generations:
+    //
+    // V4 models (deepseek-v4-flash, deepseek-v4-pro):
+    //   - Thinking mode is enabled by default
+    //   - reasoning_content MUST be passed back in multi-turn conversations
+    //   - Missing reasoning_content causes: "The reasoning_content in the thinking mode must be passed back to the API"
+    //
+    // Legacy deepseek-reasoner:
+    //   - reasoning_content should NOT be included in input messages (causes 400 error)
+    //   - Reference: https://api-docs.deepseek.com/guides/reasoning_model
+    if (config.isV4ThinkingModel) {
+      final deepseekData = message.getExtension<Map<String, dynamic>>('deepseek');
+      if (deepseekData != null && deepseekData.containsKey('reasoning_content')) {
+        final reasoningContent = deepseekData['reasoning_content'] as String?;
+        if (reasoningContent != null && reasoningContent.isNotEmpty) {
+          result['reasoning_content'] = reasoningContent;
+        }
+      }
+
+      // Debug: log if assistant message is missing reasoning_content for V4 models
+      if (message.role == ChatRole.assistant && !result.containsKey('reasoning_content')) {
+        client.logger.fine(
+          '[DeepSeek] _convertMessage: V4 assistant message missing reasoning_content, '
+          'hasExtension=${message.hasExtension('deepseek')}, '
+          'extensions=${message.extensions.keys.toList()}',
+        );
+      }
+    }
 
     return result;
   }

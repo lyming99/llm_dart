@@ -178,8 +178,26 @@ class GroqChat implements ChatCapability {
     }
 
     // Convert messages to Groq format
+    // ToolResultMessage must be expanded into individual 'tool' role messages
+    // with tool_call_id, following OpenAI-compatible API requirements.
     for (final message in messages) {
-      apiMessages.add(_convertMessage(message));
+      if (message.messageType is ToolResultMessage) {
+        final toolResults =
+            (message.messageType as ToolResultMessage).results;
+        for (final result in toolResults) {
+          apiMessages.add({
+            'role': 'tool',
+            'tool_call_id': result.id,
+            'content': message.content.isNotEmpty
+                ? message.content
+                : (result.function.arguments.isNotEmpty
+                    ? result.function.arguments
+                    : 'Tool result'),
+          });
+        }
+      } else {
+        apiMessages.add(_convertMessage(message));
+      }
     }
 
     final body = <String, dynamic>{

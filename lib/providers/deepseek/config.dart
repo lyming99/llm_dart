@@ -27,6 +27,17 @@ class DeepSeekConfig {
   final double? presencePenalty;
   final Map<String, dynamic>? responseFormat;
 
+  // V4 thinking mode parameters
+  /// Controls thinking mode for V4 models ('enabled' or 'disabled').
+  /// Only applicable to deepseek-v4-flash and deepseek-v4-pro.
+  /// Reference: https://api-docs.deepseek.com/guides/thinking_mode
+  final String? thinkingType;
+
+  /// Reasoning effort level for V4 models ('high', 'medium', 'low').
+  /// Only applicable to deepseek-v4-flash and deepseek-v4-pro.
+  /// Reference: https://api-docs.deepseek.com/guides/thinking_mode
+  final String? reasoningEffort;
+
   /// Reference to original LLMConfig for accessing extensions
   final LLMConfig? _originalConfig;
 
@@ -47,6 +58,8 @@ class DeepSeekConfig {
     this.frequencyPenalty,
     this.presencePenalty,
     this.responseFormat,
+    this.thinkingType,
+    this.reasoningEffort,
     LLMConfig? originalConfig,
   }) : _originalConfig = originalConfig;
 
@@ -71,6 +84,8 @@ class DeepSeekConfig {
       presencePenalty: config.getExtension<double>('presence_penalty'),
       responseFormat:
           config.getExtension<Map<String, dynamic>>('response_format'),
+      thinkingType: config.getExtension<String>('thinking_type'),
+      reasoningEffort: config.getExtension<String>('reasoning_effort'),
       originalConfig: config,
     );
   }
@@ -83,9 +98,17 @@ class DeepSeekConfig {
 
   /// Check if this model supports reasoning/thinking
   bool get supportsReasoning {
-    // DeepSeek reasoner model supports reasoning
+    // DeepSeek reasoner model and V4 models support reasoning
     // Reference: https://api-docs.deepseek.com/api/create-chat-completion
-    return model == 'deepseek-reasoner';
+    return model == 'deepseek-reasoner' || isV4ThinkingModel;
+  }
+
+  /// Check if this is a V4 model with thinking mode
+  /// V4 models (deepseek-v4-flash, deepseek-v4-pro) use thinking mode by default
+  /// and require reasoning_content to be passed back in multi-turn conversations.
+  /// Reference: https://api-docs.deepseek.com/api/create-chat-completion
+  bool get isV4ThinkingModel {
+    return model == 'deepseek-v4-flash' || model == 'deepseek-v4-pro';
   }
 
   /// Check if this model supports vision
@@ -97,9 +120,10 @@ class DeepSeekConfig {
 
   /// Check if this model supports tool calling
   bool get supportsToolCalling {
-    // Both deepseek-chat and deepseek-reasoner support tool calling
+    // deepseek-chat, deepseek-reasoner, and V4 models support tool calling
     // Reference: https://api-docs.deepseek.com/guides/function_calling
-    return model == 'deepseek-chat' || model == 'deepseek-reasoner';
+    // Reference: https://api-docs.deepseek.com/guides/thinking_mode
+    return model == 'deepseek-chat' || model == 'deepseek-reasoner' || isV4ThinkingModel;
   }
 
   /// Check if this model supports code generation
@@ -125,6 +149,8 @@ class DeepSeekConfig {
     double? frequencyPenalty,
     double? presencePenalty,
     Map<String, dynamic>? responseFormat,
+    String? thinkingType,
+    String? reasoningEffort,
   }) =>
       DeepSeekConfig(
         apiKey: apiKey ?? this.apiKey,
@@ -143,5 +169,7 @@ class DeepSeekConfig {
         frequencyPenalty: frequencyPenalty ?? this.frequencyPenalty,
         presencePenalty: presencePenalty ?? this.presencePenalty,
         responseFormat: responseFormat ?? this.responseFormat,
+        thinkingType: thinkingType ?? this.thinkingType,
+        reasoningEffort: reasoningEffort ?? this.reasoningEffort,
       );
 }
