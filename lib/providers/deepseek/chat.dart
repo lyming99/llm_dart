@@ -1,4 +1,4 @@
-﻿import 'package:dio/dio.dart';
+import 'package:dio/dio.dart';
 
 import 'dart:convert';
 
@@ -428,8 +428,9 @@ class DeepSeekChat implements ChatCapability {
       final thinkingType = config.thinkingType ?? 'enabled';
       body['thinking'] = {'type': thinkingType};
 
-      // Set reasoning effort
-      body['reasoning_effort'] = config.reasoningEffort ?? 'high';
+      // Set reasoning effort (default: 'max' for best quality; 'high' for balanced)
+      // Reference: https://api-docs.deepseek.com/guides/thinking_mode
+      body['reasoning_effort'] = config.reasoningEffort ?? 'max';
 
       // Note: temperature, top_p, presence_penalty, frequency_penalty are NOT
       // supported in thinking mode. We deliberately skip them here (unlike
@@ -507,6 +508,8 @@ class DeepSeekChat implements ChatCapability {
     //   - Thinking mode is enabled by default
     //   - reasoning_content MUST be passed back in multi-turn conversations
     //   - Missing reasoning_content causes: "The reasoning_content in the thinking mode must be passed back to the API"
+    //   - Even when reasoning_content is empty, the field must be present for assistant messages
+    //   - Reference: https://api-docs.deepseek.com/guides/thinking_mode
     //
     // Legacy deepseek-reasoner:
     //   - reasoning_content should NOT be included in input messages (causes 400 error)
@@ -520,10 +523,16 @@ class DeepSeekChat implements ChatCapability {
         }
       }
 
-      // Debug: log if assistant message is missing reasoning_content for V4 models
-      if (message.role == ChatRole.assistant && !result.containsKey('reasoning_content')) {
+      // V4 thinking mode requires every replayed assistant message to include
+      // the reasoning_content field, even when it is empty. Without this,
+      // the API returns a 400 error in multi-turn conversations with tool calls.
+      // Reference: https://api-docs.deepseek.com/guides/thinking_mode#tool-calls
+      if (message.role == ChatRole.assistant &&
+          !result.containsKey('reasoning_content')) {
+        result['reasoning_content'] = '';
         client.logger.fine(
           '[DeepSeek] _convertMessage: V4 assistant message missing reasoning_content, '
+          'filled with empty string to prevent 400 error. '
           'hasExtension=${message.hasExtension('deepseek')}, '
           'extensions=${message.extensions.keys.toList()}',
         );

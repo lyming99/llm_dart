@@ -61,6 +61,10 @@ class DeepSeekModels implements ModelListingCapability {
         return 'DeepSeek Chat model for general conversation and tasks';
       case 'deepseek-reasoner':
         return 'DeepSeek Reasoner model with advanced reasoning capabilities';
+      case 'deepseek-v4-pro':
+        return 'DeepSeek V4 Pro model with thinking mode and advanced reasoning';
+      case 'deepseek-v4-flash':
+        return 'DeepSeek V4 Flash model with thinking mode for fast inference';
       default:
         return 'DeepSeek model: $modelId';
     }
