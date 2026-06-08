@@ -398,5 +398,41 @@ void main() {
         expect(result['tool_calls'][0]['id'], equals('call_123'));
       });
     });
+
+    group('ToolResultMessage Conversion', () {
+      test('should expand grouped tool results with per-result content', () {
+        final message = ChatMessage.toolResult(
+          results: [
+            ToolCall(
+              id: 'call_read',
+              callType: 'function',
+              function: FunctionCall(
+                name: 'file_read',
+                arguments: '{"result":"read result"}',
+              ),
+            ),
+            ToolCall(
+              id: 'call_list',
+              callType: 'function',
+              function: FunctionCall(
+                name: 'file_list',
+                arguments: '{"result":"list result"}',
+              ),
+            ),
+          ],
+          content: 'read result\nlist result',
+        );
+
+        final result = client.buildApiMessages([message]);
+
+        expect(result, hasLength(2));
+        expect(result[0]['role'], equals('tool'));
+        expect(result[0]['tool_call_id'], equals('call_read'));
+        expect(result[0]['content'], equals('{"result":"read result"}'));
+        expect(result[1]['role'], equals('tool'));
+        expect(result[1]['tool_call_id'], equals('call_list'));
+        expect(result[1]['content'], equals('{"result":"list result"}'));
+      });
+    });
   });
 }

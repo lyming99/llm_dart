@@ -318,20 +318,18 @@ class OpenAIClient {
       if (message.messageType is ToolResultMessage) {
         // Expand tool results into separate `tool` role messages.
         //
-        // OpenAI expects the tool message content to be the tool OUTPUT,
-        // not the original function arguments, so we prefer the
-        // ChatMessage.content here and only fall back to arguments if the
-        // content is empty.
+        // In ToolResultMessage, each result's FunctionCall.arguments carries
+        // that tool_call_id's output payload. Do not reuse the grouped
+        // ChatMessage.content for every expanded tool message.
         final toolResults = (message.messageType as ToolResultMessage).results;
         for (final result in toolResults) {
+          final resultContent = result.function.arguments.isNotEmpty
+              ? result.function.arguments
+              : (message.content.isNotEmpty ? message.content : 'Tool result');
           apiMessages.add({
             'role': 'tool',
             'tool_call_id': result.id,
-            'content': message.content.isNotEmpty
-                ? message.content
-                : (result.function.arguments.isNotEmpty
-                    ? result.function.arguments
-                    : 'Tool result'),
+            'content': resultContent,
           });
         }
       } else {

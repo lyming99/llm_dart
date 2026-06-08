@@ -177,17 +177,15 @@ class XAIChat implements ChatCapability {
     // with tool_call_id, following OpenAI-compatible API requirements.
     for (final message in messages) {
       if (message.messageType is ToolResultMessage) {
-        final toolResults =
-            (message.messageType as ToolResultMessage).results;
+        final toolResults = (message.messageType as ToolResultMessage).results;
         for (final result in toolResults) {
+          final resultContent = result.function.arguments.isNotEmpty
+              ? result.function.arguments
+              : (message.content.isNotEmpty ? message.content : 'Tool result');
           apiMessages.add({
             'role': 'tool',
             'tool_call_id': result.id,
-            'content': message.content.isNotEmpty
-                ? message.content
-                : (result.function.arguments.isNotEmpty
-                    ? result.function.arguments
-                    : 'Tool result'),
+            'content': resultContent,
           });
         }
       } else {

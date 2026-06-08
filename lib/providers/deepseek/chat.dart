@@ -315,17 +315,15 @@ class DeepSeekChat implements ChatCapability {
     // responding to each 'tool_call_id'"
     for (final message in messages) {
       if (message.messageType is ToolResultMessage) {
-        final toolResults =
-            (message.messageType as ToolResultMessage).results;
+        final toolResults = (message.messageType as ToolResultMessage).results;
         for (final result in toolResults) {
+          final resultContent = result.function.arguments.isNotEmpty
+              ? result.function.arguments
+              : (message.content.isNotEmpty ? message.content : 'Tool result');
           apiMessages.add({
             'role': 'tool',
             'tool_call_id': result.id,
-            'content': message.content.isNotEmpty
-                ? message.content
-                : (result.function.arguments.isNotEmpty
-                    ? result.function.arguments
-                    : 'Tool result'),
+            'content': resultContent,
           });
         }
       } else {
@@ -338,8 +336,6 @@ class DeepSeekChat implements ChatCapability {
       'messages': apiMessages,
       'stream': stream,
     };
-
-
 
     // Check if using reasoning model
     final isReasonerModel = config.model == 'deepseek-reasoner';
@@ -361,7 +357,8 @@ class DeepSeekChat implements ChatCapability {
       var missingCount = 0;
       for (var i = 0; i < apiMessages.length; i++) {
         final msg = apiMessages[i];
-        if (msg['role'] == 'assistant' && !msg.containsKey('reasoning_content')) {
+        if (msg['role'] == 'assistant' &&
+            !msg.containsKey('reasoning_content')) {
           missingCount++;
           if (missingCount <= 3) {
             client.logger.fine(
@@ -515,8 +512,10 @@ class DeepSeekChat implements ChatCapability {
     //   - reasoning_content should NOT be included in input messages (causes 400 error)
     //   - Reference: https://api-docs.deepseek.com/guides/reasoning_model
     if (config.isV4ThinkingModel) {
-      final deepseekData = message.getExtension<Map<String, dynamic>>('deepseek');
-      if (deepseekData != null && deepseekData.containsKey('reasoning_content')) {
+      final deepseekData =
+          message.getExtension<Map<String, dynamic>>('deepseek');
+      if (deepseekData != null &&
+          deepseekData.containsKey('reasoning_content')) {
         final reasoningContent = deepseekData['reasoning_content'] as String?;
         if (reasoningContent != null && reasoningContent.isNotEmpty) {
           result['reasoning_content'] = reasoningContent;

@@ -196,6 +196,7 @@ class ReasoningUtils {
         model.contains('claude-sonnet-4') ||
         model.contains('claude-opus-4')) {
       const effortRatios = {
+        ReasoningEffort.xhigh: 0.95,
         ReasoningEffort.high: 0.8,
         ReasoningEffort.medium: 0.5,
         ReasoningEffort.low: 0.2,

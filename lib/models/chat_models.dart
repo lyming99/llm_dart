@@ -622,7 +622,8 @@ enum ReasoningEffort {
   minimal,
   low,
   medium,
-  high;
+  high,
+  xhigh;
 
   /// Convert to string value for API requests
   String get value {
@@ -635,6 +636,8 @@ enum ReasoningEffort {
         return 'medium';
       case ReasoningEffort.high:
         return 'high';
+      case ReasoningEffort.xhigh:
+        return 'xhigh';
     }
   }
 
@@ -650,6 +653,8 @@ enum ReasoningEffort {
         return ReasoningEffort.medium;
       case 'high':
         return ReasoningEffort.high;
+      case 'xhigh':
+        return ReasoningEffort.xhigh;
       default:
         return null;
     }
